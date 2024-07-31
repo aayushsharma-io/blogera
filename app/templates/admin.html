@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Admin Page</h1>
+<p>Write and manage your blogs here.</p>
+<div>
+    <a href="{{ url_for('main.write_blog') }}">Write a New Blog Post</a>
+</div>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Welcome to Blogera</h1>
+<p>Your blogging platform.</p>
+<div>
+    {% for blog in blogs %}
+    <div>
+        <h2><a href="{{ url_for('main.blog_detail', blog_id=blog.id) }}">{{ blog.title }}</a></h2>
+        <img src="{{ blog.thumbnail }}" alt="Thumbnail" style="width: 150px; height: auto;">
+        <p>{{ blog.description }}</p>
+        <p>by {{ blog.author }} on {{ blog.timestamp }}</p>
+    </div>
+    <hr>
+    {% endfor %}
+</div>
+{% endblock %}
