@@ -1,35 +1,75 @@
+from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask_login import login_user, login_required, logout_user, current_user
 import os
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app
-from flask_login import login_required, current_user
 import json
+import uuid
 from datetime import datetime
+from werkzeug.utils import secure_filename
 
 bp = Blueprint('main', __name__)
-
-def save_file(file):
-    filename = datetime.now().strftime('%Y%m%d%H%M%S') + '_' + file.filename
-    filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
-    return filename
 
 @bp.route('/')
 def index():
     blogs = []
-    if os.path.exists('app/blogs'):
-        for filename in os.listdir('app/blogs'):
-            if filename.endswith('.json'):
-                with open(os.path.join('app/blogs', filename), 'r') as f:
-                    blogs.append(json.load(f))
+    blog_files = os.listdir('app/blogs')
+    for filename in blog_files:
+        with open(f'app/blogs/{filename}', 'r') as file:
+            blog = json.load(file)
+            blogs.append(blog)
     return render_template('index.html', blogs=blogs)
 
 @bp.route('/blog/<blog_id>')
 def blog_detail(blog_id):
-    blog_file = f'app/blogs/{blog_id}.json'
-    if not os.path.exists(blog_file):
-        abort(404)
-    with open(blog_file, 'r') as f:
-        blog = json.load(f)
-    return render_template('blog_detail.html', blog=blog)
+    try:
+        with open(f'app/blogs/{blog_id}.json', 'r') as file:
+            blog = json.load(file)
+        return render_template('blog_detail.html', blog=blog)
+    except FileNotFoundError:
+        flash('Blog not found.', 'danger')
+        return redirect(url_for('main.index'))
+
+@bp.route('/admin/register', methods=['GET', 'POST'])
+def admin_register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        user_id = str(uuid.uuid4())
+        new_user = {
+            'id': user_id,
+            'username': username,
+            'password': password
+        }
+        with open('users.json', 'r') as file:
+            users = json.load(file)
+        users.append(new_user)
+        with open('users.json', 'w') as file:
+            json.dump(users, file)
+        flash('Admin registered successfully!', 'success')
+        return redirect(url_for('main.admin_login'))
+    return render_template('admin_register.html')
+
+@bp.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        with open('users.json', 'r') as file:
+            users = json.load(file)
+        for user in users:
+            if user['username'] == username and user['password'] == password:
+                user_obj = User(user['id'], user['username'], user['password'])
+                login_user(user_obj)
+                flash('Logged in successfully!', 'success')
+                return redirect(url_for('main.admin'))
+        flash('Invalid username or password.', 'danger')
+    return render_template('admin_login.html')
+
+@bp.route('/admin/logout')
+@login_required
+def admin_logout():
+    logout_user()
+    flash('Logged out successfully!', 'success')
+    return redirect(url_for('main.index'))
 
 @bp.route('/admin')
 @login_required
@@ -43,58 +83,42 @@ def write_blog():
         title = request.form['title']
         description = request.form['description']
         content = request.form['content']
-        thumbnail_file = request.files['thumbnail']
-        allow_comments = 'allow_comments' in request.form
-
-        if not title or not description or not content:
-            flash('Title, description, and content are required.')
-            return redirect(url_for('main.write_blog'))
-
-        if thumbnail_file:
-            thumbnail_filename = save_file(thumbnail_file)
-        else:
-            flash('Thumbnail is required.')
-            return redirect(url_for('main.write_blog'))
-
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        blog_id = f'blog{datetime.now().strftime("%Y%m%d%H%M%S")}'
-        blog_data = {
+        thumbnail = request.files['thumbnail']
+        thumbnail_filename = secure_filename(thumbnail.filename)
+        thumbnail.save(os.path.join('app/static/uploads', thumbnail_filename))
+        blog_id = str(uuid.uuid4())
+        new_blog = {
             'id': blog_id,
             'title': title,
             'description': description,
             'content': content,
-            'thumbnail': url_for('static', filename=f'uploads/{thumbnail_filename}'),
-            'allow_comments': allow_comments,
+            'thumbnail': thumbnail_filename,
             'author': current_user.username,
-            'timestamp': timestamp
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
-
-        if not os.path.exists('app/blogs'):
-            os.makedirs('app/blogs', exist_ok=True)
-
-        with open(f'app/blogs/{blog_id}.json', 'w') as f:
-            json.dump(blog_data, f)
-
-        flash('Blog post created successfully.')
-        return redirect(url_for('main.index'))
-
+        with open(f'app/blogs/{blog_id}.json', 'w') as file:
+            json.dump(new_blog, file)
+        flash('Blog post created successfully!', 'success')
+        return redirect(url_for('main.admin'))
     return render_template('write_blog.html')
 
 @bp.route('/blog/<blog_id>/add_comment', methods=['POST'])
+@login_required
 def add_comment(blog_id):
-    blog_file = f'app/blogs/{blog_id}.json'
-    if not os.path.exists(blog_file):
-        abort(404)
-    with open(blog_file, 'r+') as f:
-        blog = json.load(f)
-        comment = {
-            'author': current_user.username if current_user.is_authenticated else 'Anonymous',
-            'content': request.form['comment'],
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
+    comment = request.form['comment']
+    try:
+        with open(f'app/blogs/{blog_id}.json', 'r') as file:
+            blog = json.load(file)
         if 'comments' not in blog:
             blog['comments'] = []
-        blog['comments'].append(comment)
-        f.seek(0)
-        json.dump(blog, f)
+        blog['comments'].append({
+            'author': current_user.username,
+            'comment': comment,
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+        with open(f'app/blogs/{blog_id}.json', 'w') as file:
+            json.dump(blog, file)
+        flash('Comment added successfully!', 'success')
+    except FileNotFoundError:
+        flash('Blog not found.', 'danger')
     return redirect(url_for('main.blog_detail', blog_id=blog_id))

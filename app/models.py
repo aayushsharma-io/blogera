@@ -1,20 +1,34 @@
-from flask_login import UserMixin
 import json
-import os
 
-class User(UserMixin):
-    def __init__(self, id, username):
+class User:
+    def __init__(self, id, username, password):
         self.id = id
         self.username = username
+        self.password = password
 
     @staticmethod
     def get(user_id):
-        if not os.path.exists('app/data/users.json'):
+        try:
+            with open('users.json', 'r') as file:
+                users = json.load(file)
+                for user in users:
+                    if user['id'] == user_id:
+                        return User(user['id'], user['username'], user['password'])
+        except FileNotFoundError:
             return None
+        return None
 
-        with open('app/data/users.json', 'r') as f:
-            users = json.load(f)
-            user = next((u for u in users if u['id'] == int(user_id)), None)
-            if user:
-                return User(user['id'], user['username'])
-            return None
+    def get_id(self):
+        return self.id
+
+    @property
+    def is_authenticated(self):
+        return True
+
+    @property
+    def is_active(self):
+        return True
+
+    @property
+    def is_anonymous(self):
+        return False
